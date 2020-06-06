@@ -1,0 +1,78 @@
+version: "2.4"
+
+services:
+    db:
+      image: postgres:10.10
+      cpus: 1
+      mem_limit: 1g
+      shm_size: 256M
+      environment:
+          PGDATA: ${PGDATA}
+          POSTGRES_INITDB_WALDIR: ${POSTGRES_INITDB_WALDIR}
+          # admin
+          POSTGRES_USER: ${POSTGRES_USER}
+          POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+          POSTGRES_DB: ${POSTGRES_DB}
+          # auth db and user
+          PGUSER_AUTH: ${PGUSER_AUTH}
+          PGPASSWORD_AUTH: ${PGPASSWORD_AUTH}
+          PGDB_AUTH: ${PGDB_AUTH} 
+          # APP db and user
+          PGUSER_APP: ${PGUSER_APP}
+          PGPASSWORD_APP: ${PGPASSWORD_APP}
+          PGDB_APP: ${PGDB_APP}
+      healthcheck:
+          test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+          interval: 10s
+          timeout: 6s
+          retries: 600
+          start_period: 15s
+      ports:
+          - 5432:5432
+      volumes:
+          - db-datafiles:${PGDATA}
+          - db-wal:${POSTGRES_INITDB_WALDIR}
+          - ./config/db:/docker-entrypoint-initdb.d:ro
+      restart: unless-stopped
+  
+    auth:
+      image: jboss/keycloak:7.0.1
+      cpus: 2
+      mem_limit: 1536m
+      environment:
+          DB_VENDOR: postgres
+          DB_ADDR: db
+          DB_PORT: "5432"
+          DB_DATABASE: ${PGDB_AUTH}
+          DB_USER: ${PGUSER_AUTH}
+          DB_PASSWORD: ${PGPASSWORD_AUTH}
+          KEYCLOAK_IMPORT: /tmp/realm.json
+          KEYCLOAK_USER: ${KEYCLOAK_USER}
+          KEYCLOAK_PASSWORD: ${KEYCLOAK_PASSWORD}
+          KEYCLOAK_FRONTEND_URL: "https://${DOMAIN}"
+          KEYCLOAK_ALWAYS_HTTPS: "true"
+          PROXY_ADDRESS_FORWARDING: "true"
+          KEYCLOAK_LOGLEVEL: INFO
+          ROOT_LOGLEVEL: INFO
+          JAVA_OPTS: "-server -XX:MaxRAMPercentage=65 -XX:MinRAMPercentage=65 -XX:MetaspaceSize=96M -XX:MaxMetaspaceSize=256m -Djava.net.preferIPv4Stack=true -Djboss.modules.system.pkgs=org.jboss.byteman -Djava.awt.headless=true  --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED --add-exports=jdk.unsupported/sun.reflect=ALL-UNNAMED"
+          VIRTUAL_HOST: ${CI_ENVIRONMENT_SLUG}.${DOMAIN}
+          VIRTUAL_PORT: 8080
+          VIRTUAL_PATH: /auth
+      restart: unless-stopped
+      healthcheck:
+          test: ["CMD-SHELL", "curl http://localhost:8080/auth/realms/${KEYCLOAK_REALM}"]
+          interval: 30s
+          timeout: 10s
+          retries: 10
+          start_period: 1m
+      depends_on:
+          db:
+              condition: service_healthy
+      ports:
+          - 8085:8080
+      volumes:
+          - ./config/auth/master.json:/tmp/realm.json
+volumes:
+    db-datafiles: {}
+    db-wal: {}
+    aerospike-data: {}
